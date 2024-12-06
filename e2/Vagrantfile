@@ -1,0 +1,66 @@
+Vagrant.configure("2") do |config|
+  # Định nghĩa box và cấu hình cơ bản
+  config.vm.box = "bento/ubuntu-20.04"
+  config.vm.boot_timeout = 600
+
+  # Cấu hình mạng riêng tư
+  config.vm.network "private_network", ip: "172.20.20.21"
+
+  # Đồng bộ thư mục giữa host và guest
+  config.vm.synced_folder "./", "/home/vagrant/myapp"
+
+  # Cấu hình VirtualBox (RAM, chế độ không GUI)
+  config.vm.provider "virtualbox" do |vb|
+    vb.gui = false
+    vb.memory = "1024"
+  end
+
+  # Script cài đặt phần mềm tự động
+  config.vm.provision "shell", inline: <<-SHELL
+    # Cập nhật gói cơ bản
+    sudo apt-get update -y && sudo apt-get upgrade -y
+    sudo apt-get install -y curl gnupg2 ca-certificates lsb-release software-properties-common
+
+    # Cài đặt Node.js (LTS)
+    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+
+    # Cài đặt Docker và Docker Compose
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    sudo apt-get update -y
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+
+    # Thêm user 'vagrant' vào nhóm Docker để không cần sudo khi chạy Docker
+    sudo usermod -aG docker vagrant
+
+    # Cài đặt Docker Compose
+    sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    sudo chmod +x /usr/local/bin/docker-compose
+
+    # Tạo tệp docker-compose.yml cho n8n
+    cat <<- 'EOF' > /home/vagrant/myapp/docker-compose.yml
+version: '3.8'
+
+services:
+  n8n:
+    image: n8nio/n8n
+    container_name: n8n
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=adminpassword
+      - N8N_SECURE_COOKIE=false
+      - N8N_HOST=172.20.20.21
+      - N8N_PORT=5678
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+EOF
+  cd /home/vagrant/myapp
+  docker-compose up -d
+  docker ps
+SHELL
+end
